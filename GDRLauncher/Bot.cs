@@ -219,12 +219,21 @@ namespace GDRLauncher
                 // Look for second windows to open
                 SetForegroundWindow(GdrWindowHandle);
                 IntPtr secondWindowHandle = ActiveWindowHandle();
+                int tries = 1;
                 while (secondWindowHandle == windowHandle)
                 {
-                   Console.WriteLine("Looking for second Window");
+                   Console.WriteLine($"Looking for second Window [Tries {tries}/3]");
                     SetForegroundWindow(GdrWindowHandle);
                     secondWindowHandle = ActiveWindowHandle();
-                    Thread.Sleep(1000);
+                    Thread.Sleep(3000);
+                    if (tries == 3)
+                    {
+                        Console.WriteLine($"Clicking start again");
+
+                        LookForButtonWithinButton(windowHandle, GDRWindowFirstButton, GDRWindowSecondButton);
+                        tries = 0;
+                    }
+                    tries++;
                 }
                 Console.WriteLine("Window 2 handle = " + secondWindowHandle.ToString("X"));
 
