@@ -1,0 +1,237 @@
+﻿using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Configuration;
+using System.Net.NetworkInformation;
+
+namespace GDRLauncher
+{
+    static class Bot
+    {
+        #region Variables
+        private const string GDRVersion = "1.1.7";
+        private static int MinToWait = 0;
+
+        private const string GDRWindow = "GDR";
+        private const string GDRWindowFirstButton = "登录卡密";
+        private const string GDRWindowSecondButton = "启动";
+
+        private const string SelectWindow = "运行";
+        private const string SelectWindowFirstButton = "订阅信息";
+        private const string SelectWindowSecondButton = "运行";
+        public delegate bool Win32Callback(IntPtr hwnd, IntPtr lParam);
+        private const int BM_CLICK = 0x00F5;
+        private static string GdrPath = "";
+        private static bool CheckVPN = false;
+
+        private static string LogTextFile = "log.txt";
+        private static IntPtr GdrWindowHandle;
+        #endregion
+
+        #region Dll Calls
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetDlgItem(IntPtr hWnd, int nIDDlgItem);
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int Msg, int wParam, IntPtr lParam);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+        [DllImport("user32.dll", EntryPoint = "FindWindowEx", CharSet = CharSet.Auto)]
+        private static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool IsWindow(IntPtr hWnd);
+        #endregion
+        [DllImport("user32.dll")]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+        [DllImport("user32.dll")]
+        public static extern int GetWindowTextLength(int hWnd);
+        [DllImport("user32")]
+        internal static extern int GetWindowText(int hWnd, String text, int nMaxCount);
+        [DllImport("user32.dll")]
+        public static extern int FindWindowEx(int parent, int start, String class_name);
+        [DllImport("user32.dll")]
+        public static extern int GetWindow(int parent, uint cmd);
+        [DllImport("user32.dll")]
+        static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")]
+        static extern bool SetForegroundWindow(IntPtr hWnd);
+        /// <summary>
+        /// Log to a text file, it appends Time at the begginig of the message
+        /// </summary>
+        /// <param name="Message"></param>
+        private static void LogToFile(string Message)
+        {
+            Console.WriteLine(Message);
+            string datenow = "[" + DateTime.Now.ToString("dddd, dd MMMM yyyy HH:mm:ss") + "] ";
+            if (!File.Exists(LogTextFile))
+            {
+                using (StreamWriter sw = File.CreateText(LogTextFile))
+                {
+                    sw.WriteLine(datenow + Message);
+                }
+            }
+
+            using (StreamWriter sw = File.AppendText(LogTextFile))
+            {
+                sw.WriteLine(datenow + Message);
+            }
+        }
+
+        static private IntPtr ActiveWindowHandle()
+        {
+            IntPtr handle = IntPtr.Zero;
+            handle = GetForegroundWindow();
+            return handle;
+        }
+
+        public static IntPtr LaunchAndHandler()
+        {
+           for (int a = MinToWait * 60; a >= 0; a--)
+           {
+                TimeSpan time = TimeSpan.FromSeconds(a);
+                Console.Write($"\rLaunching GDR in {time.ToString(@"mm\:ss")}", a);
+                Thread.Sleep(1000);
+           }
+            if (File.Exists(GdrPath))
+            {
+                if (CheckVPN)
+                {
+                    Console.WriteLine("\nChecking Vpn");
+
+                    while (!VpnIsConnected())
+                    {
+                        Thread.Sleep(10000);
+                    }
+                }
+                Process p = Process.Start(GdrPath);
+                p.WaitForInputIdle();
+                SetForegroundWindow(p.MainWindowHandle);
+                GdrWindowHandle = p.MainWindowHandle;
+                return p.MainWindowHandle;
+            }
+            else
+            {
+                LogToFile($"[ERROR] GDR was not found in {GdrPath}");
+                return IntPtr.Zero;
+            }
+        }
+        
+        /// <summary>
+        /// Look for window caption and returns it handler
+        /// </summary>
+        /// <param name="WindowName"></param>
+        /// <returns></returns>
+        private static IntPtr LookForWindow(string WindowName)
+        {
+            LogToFile($"Looking for {WindowName} Window");
+            IntPtr windowHandle = IntPtr.Zero;
+            bool iswindowOpen = false;
+            while (iswindowOpen == false)
+            {
+                windowHandle = FindWindow(null, WindowName);
+
+                iswindowOpen = IsWindow(windowHandle);
+                if (iswindowOpen == false)
+                {
+                    LogToFile($"Not found yet");
+                    System.Threading.Thread.Sleep(1000);
+                }
+            }
+            LogToFile($"{WindowName} Window found");
+            return windowHandle;
+        }
+      
+        /// <summary>
+        /// Look for button that are inside another button using window handler
+        /// </summary>
+        /// <param name="windowHandle"></param>
+        /// <param name="ButtonName1"></param>
+        /// <param name="ButtonName2"></param>
+        private static void LookForButtonWithinButton(IntPtr windowHandle, string ButtonName1, string ButtonName2)
+        {
+            IntPtr btnHandle = IntPtr.Zero;
+            LogToFile($"Looking for button {ButtonName2}");
+            while (btnHandle == IntPtr.Zero)
+            {
+                btnHandle = FindWindowEx(windowHandle, IntPtr.Zero, null, ButtonName1);
+
+                if (btnHandle == IntPtr.Zero)
+                {
+                    LogToFile($"Not found yet");
+                    System.Threading.Thread.Sleep(1000);
+                }
+            }
+            LogToFile($"{ButtonName2} button Found");
+            var btnHandle2 = FindWindowEx(btnHandle, IntPtr.Zero, null, ButtonName2);
+            SendMessage(btnHandle2, BM_CLICK, 0, IntPtr.Zero);
+        }
+
+        /// <summary>
+        /// Variable initializer with paths and variable values
+        /// </summary>
+        public static void InitialSetup()
+        {
+            Console.WriteLine($"Relauncher for GDR {GDRVersion}");
+            GdrPath = ConfigurationManager.AppSettings.Get("GDRPath");
+            CheckVPN = Convert.ToBoolean(int.Parse(ConfigurationManager.AppSettings.Get("CheckVPN")));
+            MinToWait = int.Parse(ConfigurationManager.AppSettings.Get("MinsToWait"));
+
+        }
+
+
+        private static bool VpnIsConnected()
+        {
+            if (NetworkInterface.GetIsNetworkAvailable())
+            {
+
+                NetworkInterface[] interfaces = NetworkInterface.GetAllNetworkInterfaces();
+                foreach (NetworkInterface Interface in interfaces)
+                {
+                    if (Interface.OperationalStatus == OperationalStatus.Up)
+                    {
+                        if ((Interface.NetworkInterfaceType == NetworkInterfaceType.Ppp) && (Interface.NetworkInterfaceType != NetworkInterfaceType.Loopback))
+                        {
+                            Console.WriteLine("VPN Connected");
+
+                            return true;
+                        }
+                    }
+                }
+            }
+            Console.WriteLine("VPN not connected, checking again in 10secs");
+
+            return false;
+        }
+
+
+        /// <summary>
+        /// Main bot logic
+        /// </summary>
+        public static void BotLogic()
+        {
+            //Look for GDR Window and get its handle
+
+            IntPtr windowHandle = LaunchAndHandler();
+            if (windowHandle != IntPtr.Zero)
+            {
+                Console.WriteLine("\nWindow 1 handle = " + windowHandle.ToString("X"));
+                //Use GDR window handle to look for button and click it
+                LookForButtonWithinButton(windowHandle, GDRWindowFirstButton, GDRWindowSecondButton);
+                // Look for second windows to open
+                SetForegroundWindow(GdrWindowHandle);
+                IntPtr secondWindowHandle = ActiveWindowHandle();
+                while (secondWindowHandle == windowHandle)
+                {
+                   Console.WriteLine("Looking for second Window");
+                    SetForegroundWindow(GdrWindowHandle);
+                    secondWindowHandle = ActiveWindowHandle();
+                    Thread.Sleep(1000);
+                }
+                Console.WriteLine("Window 2 handle = " + secondWindowHandle.ToString("X"));
+
+                //Use second window handle to look for the button and click it
+                LookForButtonWithinButton(secondWindowHandle, SelectWindowFirstButton, SelectWindowSecondButton);
+                Environment.Exit(0);
+            }
+        }
+    }
+}
