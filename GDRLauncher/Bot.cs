@@ -8,20 +8,22 @@ namespace GDRLauncher
     static class Bot
     {
         #region Variables
-        private const string GDRVersion = "1.1.7";
         private static int MinToWait = 0;
 
         private const string GDRWindow = "GDR";
         private const string GDRWindowFirstButton = "登录卡密";
-        private const string GDRWindowSecondButton = "启动";
+        private const string GDRStartButton = "启动";
 
         private const string SelectWindow = "运行";
         private const string SelectWindowFirstButton = "订阅信息";
-        private const string SelectWindowSecondButton = "运行";
+        private const string SecondWindowStartButton = "运行";
+
+
         public delegate bool Win32Callback(IntPtr hwnd, IntPtr lParam);
         private const int BM_CLICK = 0x00F5;
         private static string GdrPath = "";
         private static bool CheckVPN = false;
+        private static bool CheckBsod = false;
 
         private static string LogTextFile = "log.txt";
         private static IntPtr GdrWindowHandle;
@@ -40,6 +42,8 @@ namespace GDRLauncher
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool IsWindow(IntPtr hWnd);
         #endregion
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        static extern IntPtr SendMessage(IntPtr hWnd, UInt32 Msg, IntPtr wParam, IntPtr lParam);
         [DllImport("user32.dll")]
         public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
         [DllImport("user32.dll")]
@@ -76,6 +80,40 @@ namespace GDRLauncher
             }
         }
 
+        public async static Task<bool> NewMinidumb()
+        {
+            if (CheckBsod)
+            {
+                bool exist = Directory.Exists(Environment.GetFolderPath(Environment.SpecialFolder.Windows) + @"\Minidump");
+                if (exist)
+                {
+                    string windowsPath = Environment.GetFolderPath(Environment.SpecialFolder.Windows) + @"\Minidump";
+                    int Minidumpcount = System.IO.Directory.EnumerateFiles(windowsPath).Count();
+
+                    string text = File.ReadAllText(@"minidumpcount.txt");
+                    int lastcount = 0;
+                    int.TryParse(text, out lastcount);
+                    if (Minidumpcount > lastcount)
+                    {
+                        File.WriteAllText("minidumpcount.txt", Minidumpcount.ToString());
+                        return true;
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                return true;
+            }
+            return false;
+        }
         static private IntPtr ActiveWindowHandle()
         {
             IntPtr handle = IntPtr.Zero;
@@ -150,7 +188,7 @@ namespace GDRLauncher
         {
             IntPtr btnHandle = IntPtr.Zero;
             LogToFile($"Looking for button {ButtonName2}");
-            while (btnHandle == IntPtr.Zero)
+            while (btnHandle == (IntPtr)0x0000000000000000)
             {
                 btnHandle = FindWindowEx(windowHandle, IntPtr.Zero, null, ButtonName1);
 
@@ -165,15 +203,33 @@ namespace GDRLauncher
             SendMessage(btnHandle2, BM_CLICK, 0, IntPtr.Zero);
         }
 
+        private static void lookForButton(IntPtr windowHandle, string ButtonName1)
+        {
+            IntPtr btnHandle = IntPtr.Zero;
+            while (btnHandle == IntPtr.Zero)
+            {
+                btnHandle = FindWindowEx(windowHandle, IntPtr.Zero, null, ButtonName1);
+
+                if (btnHandle == IntPtr.Zero)
+                {
+                    LogToFile($"Not found yet");
+                    System.Threading.Thread.Sleep(2000);
+                }
+            }
+            SendMessage(btnHandle, BM_CLICK, IntPtr.Zero, IntPtr.Zero);
+        }
+
         /// <summary>
         /// Variable initializer with paths and variable values
         /// </summary>
         public static void InitialSetup()
         {
-            Console.WriteLine($"Relauncher for GDR {GDRVersion}");
             GdrPath = ConfigurationManager.AppSettings.Get("GDRPath");
             CheckVPN = Convert.ToBoolean(int.Parse(ConfigurationManager.AppSettings.Get("CheckVPN")));
             MinToWait = int.Parse(ConfigurationManager.AppSettings.Get("MinsToWait"));
+            CheckBsod = Convert.ToBoolean(int.Parse(ConfigurationManager.AppSettings.Get("CheckForBSOD")));
+
+
 
         }
 
@@ -208,37 +264,37 @@ namespace GDRLauncher
         /// </summary>
         public static void BotLogic()
         {
-            //Look for GDR Window and get its handle
-
-            IntPtr windowHandle = LaunchAndHandler();
-            if (windowHandle != IntPtr.Zero)
+            IntPtr GDRWindow = LaunchAndHandler();
+            if (GDRWindow != IntPtr.Zero)
             {
-                Console.WriteLine("\nWindow 1 handle = " + windowHandle.ToString("X"));
+                Console.WriteLine("\nWindow 1 handle = " + GDRWindow.ToString("X"));
                 //Use GDR window handle to look for button and click it
-                LookForButtonWithinButton(windowHandle, GDRWindowFirstButton, GDRWindowSecondButton);
+                //LookForButtonWithinButton(windowHandle, GDRWindowFirstButton, GDRWindowSecondButton);
+                lookForButton(GDRWindow, GDRStartButton);
                 // Look for second windows to open
                 SetForegroundWindow(GdrWindowHandle);
-                IntPtr secondWindowHandle = ActiveWindowHandle();
+                IntPtr PostGDRWindow = ActiveWindowHandle();
                 int tries = 1;
-                while (secondWindowHandle == windowHandle)
+                while (PostGDRWindow == GDRWindow)
                 {
                    Console.WriteLine($"Looking for second Window [Tries {tries}/3]");
                     SetForegroundWindow(GdrWindowHandle);
-                    secondWindowHandle = ActiveWindowHandle();
+                    PostGDRWindow = ActiveWindowHandle();
                     Thread.Sleep(3000);
                     if (tries == 3)
                     {
                         Console.WriteLine($"Clicking start again");
+                        //lookForButton(windowHandle, GDRWindowSecondButton);
 
-                        LookForButtonWithinButton(windowHandle, GDRWindowFirstButton, GDRWindowSecondButton);
+                        lookForButton(GDRWindow, GDRStartButton);
                         tries = 0;
                     }
                     tries++;
                 }
-                Console.WriteLine("Window 2 handle = " + secondWindowHandle.ToString("X"));
+                Console.WriteLine("Window 2 handle = " + PostGDRWindow.ToString("X"));
 
                 //Use second window handle to look for the button and click it
-                LookForButtonWithinButton(secondWindowHandle, SelectWindowFirstButton, SelectWindowSecondButton);
+                lookForButton(PostGDRWindow, SecondWindowStartButton);
                 Environment.Exit(0);
             }
         }

@@ -7,15 +7,26 @@ namespace GDRLauncher
 {
     class Program
     {
+        
 
-
-
-
-        static void Main(string[] args)
+        private const string GDRVersion = "1.1.9";
+        static async Task Main(string[] args)
         {
-            
             Bot.InitialSetup();
-            Bot.BotLogic();
+            Console.WriteLine($"Relauncher for GDR {GDRVersion}");
+#if !DEBUG
+            if (await Bot.NewMinidumb())
+            {
+#endif
+                Bot.BotLogic();
+#if !DEBUG
+            }
+            else
+            {
+                Console.WriteLine("No BSOD detected, closing.");
+                Thread.Sleep(5000);
+            }
+#endif
         }
     }
 }
